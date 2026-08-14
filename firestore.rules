@@ -1,0 +1,46 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Users collection
+    match /users/{userId} {
+      allow create: if request.auth != null && request.auth.uid == userId; // allow user creation during signup
+      allow read: if request.auth != null && (request.auth.uid == userId || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin','superAdmin']);
+      allow update: if request.auth != null && (
+        // Allow user to update own non-role fields
+        (request.auth.uid == userId && !("role" in request.resource.data))
+        // Allow superAdmin to update any user (e.g., promote/demote)
+        || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'superAdmin'
+      );
+      allow delete: if false;
+    }
+
+    // Resources/documents collection
+    match /resources/{docId} {
+      allow create: if request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'student';
+
+      allow read: if resource.data.status == 'approved'
+        || (request.auth != null && (
+          request.auth.uid == resource.data.uploaderId
+          || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin','superAdmin']
+        ));
+
+      allow update: if request.auth != null && (
+        // uploader can update limited fields before review
+        (request.auth.uid == resource.data.uploaderId && !("status" in request.resource.data))
+        // admins can update status/review fields
+        || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin','superAdmin']
+      );
+
+      allow delete: if request.auth != null && (
+        request.auth.uid == resource.data.uploaderId
+        || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin','superAdmin']
+      );
+    }
+
+    // Allow read of public lists (courses, etc.)
+    match /{document=**} {
+      allow read: if true;
+    }
+  }
+}
